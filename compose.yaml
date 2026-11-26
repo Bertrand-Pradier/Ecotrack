@@ -1,0 +1,80 @@
+name: ecotrack
+
+services:
+  frontend:
+    build: ./frontend
+    image: ecotrack-frontend:1.0
+    ports:
+      - "3000:3000"
+    networks:
+      - front_net
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  api:
+    build: ./api
+    image: ecotrack-api:1.0
+    ports:
+      - "5000:5000"
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: appdb
+      POSTGRES_USER: etudiant
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+      WORKER_URL: http://worker:8000
+    secrets:
+      - db_password
+    networks:
+      - front_net
+      - back_net
+    depends_on:
+      db:
+        condition: service_healthy
+      worker:
+        condition: service_healthy
+    restart: unless-stopped
+
+  worker:
+    build: ./worker
+    image: ecotrack-worker:1.0
+    expose:
+      - "8000"
+    networks:
+      - back_net
+    restart: unless-stopped
+
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: appdb
+      POSTGRES_USER: etudiant
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+    secrets:
+      - db_password
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    networks:
+      - back_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U etudiant -d appdb"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+networks:
+  # Réseau exposé : navigateur -> frontend / api
+  front_net:
+  # Réseau interne : api <-> worker <-> db, sans accès à Internet
+  back_net:
+    internal: true
+
+volumes:
+  db_data:
+
+secrets:
+  db_password:
+    file: ./db_password.txt
